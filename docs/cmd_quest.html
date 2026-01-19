@@ -1,0 +1,1624 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CMD Quest - Terminal Simulator</title>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Orbitron:wght@400;700;900&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0e14;
+            --bg-terminal: #0d1117;
+            --bg-card: #161b22;
+            --green-primary: #00ff88;
+            --green-dim: #00cc6a;
+            --green-glow: rgba(0, 255, 136, 0.3);
+            --amber: #ffb800;
+            --red: #ff4757;
+            --cyan: #00d4ff;
+            --purple: #bd93f9;
+            --text: #c9d1d9;
+            --text-dim: #6e7681;
+            --border: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Fira Code', monospace;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* Scanline effect */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.1) 0px,
+                rgba(0, 0, 0, 0.1) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            z-index: 9999;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-dark) 100%);
+            border-bottom: 1px solid var(--green-primary);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 0 30px var(--green-glow);
+        }
+
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.8rem;
+            font-weight: 900;
+            color: var(--green-primary);
+            text-shadow: 0 0 20px var(--green-glow), 0 0 40px var(--green-glow);
+            letter-spacing: 2px;
+        }
+
+        .logo span {
+            color: var(--amber);
+        }
+
+        .stats {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+        }
+
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.5rem 1rem;
+            background: var(--bg-terminal);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+        }
+
+        .stat-icon {
+            font-size: 1.2rem;
+        }
+
+        .stat-value {
+            font-weight: 700;
+            color: var(--green-primary);
+        }
+
+        .stat-label {
+            color: var(--text-dim);
+            font-size: 0.75rem;
+        }
+
+        /* Main container */
+        .container {
+            display: grid;
+            grid-template-columns: 320px 1fr;
+            gap: 1.5rem;
+            padding: 1.5rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            min-height: calc(100vh - 80px);
+        }
+
+        /* Sidebar - Missions */
+        .sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: var(--bg-terminal);
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.85rem;
+            color: var(--green-primary);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .missions-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .mission-item {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .mission-item:hover {
+            background: rgba(0, 255, 136, 0.05);
+        }
+
+        .mission-item.active {
+            background: rgba(0, 255, 136, 0.1);
+            border-left: 3px solid var(--green-primary);
+        }
+
+        .mission-item.completed {
+            opacity: 0.6;
+        }
+
+        .mission-item.locked {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .mission-status {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.8rem;
+            flex-shrink: 0;
+        }
+
+        .mission-status.pending {
+            border: 2px solid var(--text-dim);
+            color: var(--text-dim);
+        }
+
+        .mission-status.completed {
+            background: var(--green-primary);
+            color: var(--bg-dark);
+        }
+
+        .mission-status.locked {
+            border: 2px solid var(--text-dim);
+            color: var(--text-dim);
+        }
+
+        .mission-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .mission-title {
+            font-size: 0.85rem;
+            color: var(--text);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .mission-category {
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-top: 2px;
+        }
+
+        .mission-xp {
+            font-size: 0.75rem;
+            color: var(--amber);
+            font-weight: 600;
+        }
+
+        /* Progress panel */
+        .progress-bar-container {
+            padding: 1rem;
+        }
+
+        .progress-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.8rem;
+        }
+
+        .progress-bar {
+            height: 8px;
+            background: var(--bg-terminal);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--green-dim), var(--green-primary));
+            border-radius: 4px;
+            transition: width 0.5s ease;
+            box-shadow: 0 0 10px var(--green-glow);
+        }
+
+        .rank-display {
+            text-align: center;
+            padding: 1rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .rank-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.1rem;
+            color: var(--amber);
+            text-shadow: 0 0 10px rgba(255, 184, 0, 0.5);
+        }
+
+        .rank-subtitle {
+            font-size: 0.75rem;
+            color: var(--text-dim);
+            margin-top: 0.25rem;
+        }
+
+        /* Main area */
+        .main-area {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        /* Mission briefing */
+        .mission-briefing {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+        }
+
+        .briefing-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+        }
+
+        .briefing-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            color: var(--green-primary);
+        }
+
+        .briefing-badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .badge-cmd {
+            background: rgba(0, 212, 255, 0.2);
+            color: var(--cyan);
+            border: 1px solid var(--cyan);
+        }
+
+        .badge-powershell {
+            background: rgba(189, 147, 249, 0.2);
+            color: var(--purple);
+            border: 1px solid var(--purple);
+        }
+
+        .briefing-description {
+            color: var(--text);
+            line-height: 1.6;
+            margin-bottom: 1rem;
+        }
+
+        .briefing-hint {
+            background: var(--bg-terminal);
+            border-left: 3px solid var(--amber);
+            padding: 0.75rem 1rem;
+            font-size: 0.85rem;
+            color: var(--text-dim);
+        }
+
+        .briefing-hint strong {
+            color: var(--amber);
+        }
+
+        /* Terminal */
+        .terminal {
+            flex: 1;
+            background: var(--bg-terminal);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            min-height: 400px;
+        }
+
+        .terminal-header {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            background: var(--bg-card);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .terminal-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+
+        .dot-red { background: #ff5f56; }
+        .dot-yellow { background: #ffbd2e; }
+        .dot-green { background: #27ca40; }
+
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .terminal-mode {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+
+        .mode-cmd {
+            background: var(--cyan);
+            color: var(--bg-dark);
+        }
+
+        .mode-powershell {
+            background: var(--purple);
+            color: var(--bg-dark);
+        }
+
+        .terminal-output {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            font-size: 0.9rem;
+            line-height: 1.5;
+        }
+
+        .output-line {
+            margin-bottom: 0.25rem;
+        }
+
+        .output-line.success {
+            color: var(--green-primary);
+        }
+
+        .output-line.error {
+            color: var(--red);
+        }
+
+        .output-line.info {
+            color: var(--cyan);
+        }
+
+        .output-line.system {
+            color: var(--text-dim);
+        }
+
+        .terminal-input-area {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem 1rem;
+            border-top: 1px solid var(--border);
+            background: var(--bg-card);
+        }
+
+        .prompt {
+            color: var(--green-primary);
+            margin-right: 0.5rem;
+            white-space: nowrap;
+        }
+
+        .terminal-input {
+            flex: 1;
+            background: transparent;
+            border: none;
+            color: var(--text);
+            font-family: 'Fira Code', monospace;
+            font-size: 0.9rem;
+            outline: none;
+        }
+
+        .terminal-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        /* Feedback overlay */
+        .feedback-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+        }
+
+        .feedback-overlay.show {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .feedback-card {
+            background: var(--bg-card);
+            border: 2px solid var(--green-primary);
+            border-radius: 12px;
+            padding: 2rem;
+            text-align: center;
+            max-width: 400px;
+            transform: scale(0.9);
+            transition: transform 0.3s;
+            box-shadow: 0 0 50px var(--green-glow);
+        }
+
+        .feedback-overlay.show .feedback-card {
+            transform: scale(1);
+        }
+
+        .feedback-card.error {
+            border-color: var(--red);
+            box-shadow: 0 0 50px rgba(255, 71, 87, 0.3);
+        }
+
+        .feedback-icon {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+
+        .feedback-title {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.5rem;
+            color: var(--green-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .feedback-card.error .feedback-title {
+            color: var(--red);
+        }
+
+        .feedback-message {
+            color: var(--text);
+            margin-bottom: 1rem;
+            line-height: 1.5;
+        }
+
+        .feedback-xp {
+            font-size: 1.2rem;
+            color: var(--amber);
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .feedback-btn {
+            background: var(--green-primary);
+            color: var(--bg-dark);
+            border: none;
+            padding: 0.75rem 2rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .feedback-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px var(--green-glow);
+        }
+
+        .feedback-card.error .feedback-btn {
+            background: var(--red);
+        }
+
+        /* Help panel */
+        .help-toggle {
+            position: fixed;
+            bottom: 2rem;
+            right: 2rem;
+            width: 50px;
+            height: 50px;
+            background: var(--bg-card);
+            border: 2px solid var(--green-primary);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 1.5rem;
+            color: var(--green-primary);
+            transition: all 0.2s;
+            z-index: 100;
+        }
+
+        .help-toggle:hover {
+            background: var(--green-primary);
+            color: var(--bg-dark);
+            box-shadow: 0 0 20px var(--green-glow);
+        }
+
+        .help-panel {
+            position: fixed;
+            bottom: 5rem;
+            right: 2rem;
+            width: 350px;
+            max-height: 60vh;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            transform: translateY(20px);
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s;
+            z-index: 100;
+        }
+
+        .help-panel.show {
+            transform: translateY(0);
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .help-content {
+            padding: 1rem;
+            max-height: calc(60vh - 50px);
+            overflow-y: auto;
+            font-size: 0.85rem;
+            line-height: 1.6;
+        }
+
+        .help-section {
+            margin-bottom: 1rem;
+        }
+
+        .help-section h4 {
+            color: var(--green-primary);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .help-section code {
+            background: var(--bg-terminal);
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            color: var(--amber);
+        }
+
+        /* Animations */
+        @keyframes glow {
+            0%, 100% { box-shadow: 0 0 10px var(--green-glow); }
+            50% { box-shadow: 0 0 20px var(--green-glow), 0 0 30px var(--green-glow); }
+        }
+
+        @keyframes typewriter {
+            from { width: 0; }
+            to { width: 100%; }
+        }
+
+        .typing-effect {
+            overflow: hidden;
+            white-space: nowrap;
+            animation: typewriter 0.5s steps(40) forwards;
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-terminal);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--border);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--text-dim);
+        }
+
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .container {
+                grid-template-columns: 1fr;
+            }
+
+            .sidebar {
+                order: 2;
+            }
+
+            .missions-list {
+                max-height: 200px;
+            }
+        }
+
+        /* Start screen */
+        .start-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-dark);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 2000;
+            transition: opacity 0.5s, visibility 0.5s;
+        }
+
+        .start-screen.hidden {
+            opacity: 0;
+            visibility: hidden;
+        }
+
+        .start-logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 4rem;
+            font-weight: 900;
+            color: var(--green-primary);
+            text-shadow: 0 0 30px var(--green-glow), 0 0 60px var(--green-glow);
+            margin-bottom: 0.5rem;
+            animation: glow 2s ease-in-out infinite;
+        }
+
+        .start-logo span {
+            color: var(--amber);
+        }
+
+        .start-subtitle {
+            color: var(--text-dim);
+            font-size: 1.2rem;
+            margin-bottom: 3rem;
+        }
+
+        .start-btn {
+            background: transparent;
+            border: 2px solid var(--green-primary);
+            color: var(--green-primary);
+            padding: 1rem 3rem;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 1.2rem;
+            font-weight: 700;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .start-btn:hover {
+            background: var(--green-primary);
+            color: var(--bg-dark);
+            box-shadow: 0 0 30px var(--green-glow);
+        }
+
+        .start-info {
+            margin-top: 3rem;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            text-align: center;
+            max-width: 400px;
+            line-height: 1.6;
+        }
+
+        /* Category filters */
+        .category-filters {
+            display: flex;
+            gap: 0.5rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            flex-wrap: wrap;
+        }
+
+        .filter-btn {
+            padding: 0.25rem 0.75rem;
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            font-family: 'Fira Code', monospace;
+            font-size: 0.7rem;
+            border-radius: 3px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .filter-btn:hover, .filter-btn.active {
+            border-color: var(--green-primary);
+            color: var(--green-primary);
+        }
+
+        .filter-btn.active {
+            background: rgba(0, 255, 136, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Start Screen -->
+    <div class="start-screen" id="startScreen">
+        <div class="start-logo">CMD<span>Quest</span></div>
+        <div class="start-subtitle">Terminal Simulator</div>
+        <button class="start-btn" onclick="startGame()">▶ INICIAR MISIÓN</button>
+        <div class="start-info">
+            Aprende CMD y PowerShell completando misiones interactivas.<br>
+            Escribe los comandos correctos para avanzar.<br><br>
+            🎯 40 misiones · 📚 Tema 23 UVa
+        </div>
+    </div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="logo">CMD<span>Quest</span></div>
+        <div class="stats">
+            <div class="stat">
+                <span class="stat-icon">⭐</span>
+                <div>
+                    <div class="stat-value" id="xpValue">0</div>
+                    <div class="stat-label">XP</div>
+                </div>
+            </div>
+            <div class="stat">
+                <span class="stat-icon">🎯</span>
+                <div>
+                    <div class="stat-value" id="completedValue">0/40</div>
+                    <div class="stat-label">Misiones</div>
+                </div>
+            </div>
+            <div class="stat">
+                <span class="stat-icon">🔥</span>
+                <div>
+                    <div class="stat-value" id="streakValue">0</div>
+                    <div class="stat-label">Racha</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Container -->
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <!-- Progress -->
+            <div class="panel">
+                <div class="panel-header">📊 PROGRESO</div>
+                <div class="progress-bar-container">
+                    <div class="progress-label">
+                        <span>Nivel <span id="levelValue">1</span></span>
+                        <span id="xpProgress">0/100 XP</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                    </div>
+                </div>
+                <div class="rank-display">
+                    <div class="rank-title" id="rankTitle">🔰 Novato</div>
+                    <div class="rank-subtitle">Siguiente: Aprendiz</div>
+                </div>
+            </div>
+
+            <!-- Missions -->
+            <div class="panel" style="flex: 1;">
+                <div class="panel-header">📋 MISIONES</div>
+                <div class="category-filters">
+                    <button class="filter-btn active" onclick="filterMissions('all')">Todas</button>
+                    <button class="filter-btn" onclick="filterMissions('cmd')">CMD</button>
+                    <button class="filter-btn" onclick="filterMissions('powershell')">PowerShell</button>
+                </div>
+                <div class="missions-list" id="missionsList"></div>
+            </div>
+        </aside>
+
+        <!-- Main Area -->
+        <main class="main-area">
+            <!-- Mission Briefing -->
+            <div class="mission-briefing" id="missionBriefing">
+                <div class="briefing-header">
+                    <div class="briefing-title" id="briefingTitle">Selecciona una misión</div>
+                    <span class="briefing-badge badge-cmd" id="briefingBadge">CMD</span>
+                </div>
+                <div class="briefing-description" id="briefingDescription">
+                    Haz clic en una misión de la lista para comenzar.
+                </div>
+                <div class="briefing-hint" id="briefingHint">
+                    <strong>💡 Consejo:</strong> Las misiones están ordenadas por dificultad. ¡Empieza por las primeras!
+                </div>
+            </div>
+
+            <!-- Terminal -->
+            <div class="terminal">
+                <div class="terminal-header">
+                    <div class="terminal-dot dot-red"></div>
+                    <div class="terminal-dot dot-yellow"></div>
+                    <div class="terminal-dot dot-green"></div>
+                    <div class="terminal-title">Terminal - Tema 23 UVa</div>
+                    <span class="terminal-mode mode-cmd" id="terminalMode">CMD</span>
+                </div>
+                <div class="terminal-output" id="terminalOutput">
+                    <div class="output-line system">Microsoft Windows [Versión 10.0.22631]</div>
+                    <div class="output-line system">(c) Microsoft Corporation. Todos los derechos reservados.</div>
+                    <div class="output-line system"></div>
+                    <div class="output-line info">Bienvenido a CMD Quest - Terminal Simulator</div>
+                    <div class="output-line info">Escribe comandos para completar las misiones.</div>
+                    <div class="output-line system"></div>
+                </div>
+                <div class="terminal-input-area">
+                    <span class="prompt" id="terminalPrompt">C:\Users\Operador&gt;</span>
+                    <input type="text" class="terminal-input" id="terminalInput" placeholder="Escribe tu comando aquí..." autocomplete="off" autofocus>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Feedback Overlay -->
+    <div class="feedback-overlay" id="feedbackOverlay">
+        <div class="feedback-card" id="feedbackCard">
+            <div class="feedback-icon" id="feedbackIcon">✅</div>
+            <div class="feedback-title" id="feedbackTitle">¡Correcto!</div>
+            <div class="feedback-message" id="feedbackMessage">Has completado la misión exitosamente.</div>
+            <div class="feedback-xp" id="feedbackXp">+50 XP</div>
+            <button class="feedback-btn" onclick="closeFeedback()">CONTINUAR</button>
+        </div>
+    </div>
+
+    <!-- Help Toggle -->
+    <div class="help-toggle" onclick="toggleHelp()">?</div>
+
+    <!-- Help Panel -->
+    <div class="help-panel" id="helpPanel">
+        <div class="panel-header">📖 AYUDA RÁPIDA</div>
+        <div class="help-content">
+            <div class="help-section">
+                <h4>Comandos CMD básicos</h4>
+                <code>cls</code> - Limpiar pantalla<br>
+                <code>dir</code> - Listar archivos<br>
+                <code>cd</code> - Cambiar directorio<br>
+                <code>copy</code> - Copiar archivos<br>
+                <code>del</code> - Eliminar archivos
+            </div>
+            <div class="help-section">
+                <h4>Variables de entorno</h4>
+                <code>%USERNAME%</code> - Usuario<br>
+                <code>%COMPUTERNAME%</code> - Equipo<br>
+                <code>%USERPROFILE%</code> - Perfil<br>
+                <code>%ERRORLEVEL%</code> - Código error
+            </div>
+            <div class="help-section">
+                <h4>Redirecciones</h4>
+                <code>&gt;</code> - Sobrescribir<br>
+                <code>&gt;&gt;</code> - Añadir<br>
+                <code>|</code> - Pipe (tubería)<br>
+                <code>2&gt;</code> - Errores
+            </div>
+            <div class="help-section">
+                <h4>PowerShell</h4>
+                <code>Get-Process</code> - Procesos<br>
+                <code>Get-Service</code> - Servicios<br>
+                <code>Get-ChildItem</code> - Listar
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==================== GAME DATA ====================
+        const missions = [
+            // CATEGORÍA: COMANDOS BÁSICOS CMD
+            {
+                id: 1,
+                title: "Limpiar la pantalla",
+                category: "cmd",
+                description: "La terminal está llena de texto. Usa el comando para limpiar completamente la pantalla.",
+                hint: "El comando tiene 3 letras y significa 'Clear Screen'.",
+                answers: ["cls"],
+                xp: 25,
+                explanation: "CLS (Clear Screen) limpia toda la salida de la terminal."
+            },
+            {
+                id: 2,
+                title: "Listar archivos",
+                category: "cmd",
+                description: "Necesitas ver qué archivos hay en el directorio actual. ¿Qué comando usas?",
+                hint: "Piensa en 'directory'... abreviado.",
+                answers: ["dir"],
+                xp: 25,
+                explanation: "DIR muestra el contenido del directorio actual."
+            },
+            {
+                id: 3,
+                title: "Cambiar de directorio",
+                category: "cmd",
+                description: "Tienes que moverte al directorio 'C:\\Windows'. Escribe el comando completo.",
+                hint: "CD significa 'Change Directory'.",
+                answers: ["cd c:\\windows", "cd c:/windows", "cd C:\\Windows", "cd C:/Windows"],
+                xp: 30,
+                explanation: "CD (Change Directory) permite navegar entre carpetas."
+            },
+            {
+                id: 4,
+                title: "Subir un nivel",
+                category: "cmd",
+                description: "Estás en C:\\Windows\\System32 y necesitas subir al directorio padre (C:\\Windows).",
+                hint: "Los dos puntos '..' representan el directorio padre.",
+                answers: ["cd ..", "cd.."],
+                xp: 25,
+                explanation: "CD .. sube un nivel en la jerarquía de directorios."
+            },
+            {
+                id: 5,
+                title: "Ver contenido de archivo",
+                category: "cmd",
+                description: "Quieres ver el contenido del archivo 'readme.txt' directamente en la consola.",
+                hint: "El comando escribe el contenido 'type' de un archivo.",
+                answers: ["type readme.txt"],
+                xp: 30,
+                explanation: "TYPE muestra el contenido de un archivo de texto."
+            },
+            {
+                id: 6,
+                title: "Crear un directorio",
+                category: "cmd",
+                description: "Crea una nueva carpeta llamada 'Backup' en el directorio actual.",
+                hint: "MD o MKDIR significan 'Make Directory'.",
+                answers: ["md backup", "mkdir backup", "md Backup", "mkdir Backup"],
+                xp: 30,
+                explanation: "MD/MKDIR crea un nuevo directorio."
+            },
+            {
+                id: 7,
+                title: "Eliminar un archivo",
+                category: "cmd",
+                description: "Elimina el archivo 'temporal.tmp' del directorio actual.",
+                hint: "DEL viene de 'delete'.",
+                answers: ["del temporal.tmp", "erase temporal.tmp"],
+                xp: 30,
+                explanation: "DEL o ERASE eliminan archivos."
+            },
+            {
+                id: 8,
+                title: "Copiar un archivo",
+                category: "cmd",
+                description: "Copia el archivo 'datos.txt' a 'datos_backup.txt'.",
+                hint: "El comando es literalmente 'copy'.",
+                answers: ["copy datos.txt datos_backup.txt"],
+                xp: 35,
+                explanation: "COPY copia archivos de origen a destino."
+            },
+
+            // CATEGORÍA: VARIABLES DE ENTORNO
+            {
+                id: 9,
+                title: "Mostrar tu usuario",
+                category: "cmd",
+                description: "Muestra en pantalla el nombre del usuario actual usando una variable de entorno.",
+                hint: "Las variables van entre signos %. El nombre del usuario es USERNAME.",
+                answers: ["echo %username%", "echo %USERNAME%"],
+                xp: 40,
+                explanation: "%USERNAME% contiene el nombre del usuario actual."
+            },
+            {
+                id: 10,
+                title: "Nombre del equipo",
+                category: "cmd",
+                description: "Muestra el nombre del equipo (computadora) usando la variable de entorno correspondiente.",
+                hint: "COMPUTER + NAME, todo junto, entre signos %.",
+                answers: ["echo %computername%", "echo %COMPUTERNAME%"],
+                xp: 40,
+                explanation: "%COMPUTERNAME% contiene el nombre del equipo."
+            },
+            {
+                id: 11,
+                title: "Ruta del perfil",
+                category: "cmd",
+                description: "Muestra la ruta completa de tu carpeta de perfil de usuario.",
+                hint: "USER + PROFILE = la carpeta de tu usuario (ej: C:\\Users\\Juan).",
+                answers: ["echo %userprofile%", "echo %USERPROFILE%"],
+                xp: 40,
+                explanation: "%USERPROFILE% apunta a C:\\Users\\NombreUsuario."
+            },
+            {
+                id: 12,
+                title: "Carpeta temporal",
+                category: "cmd",
+                description: "Muestra la ruta de la carpeta de archivos temporales.",
+                hint: "La variable se llama TEMP.",
+                answers: ["echo %temp%", "echo %TEMP%"],
+                xp: 40,
+                explanation: "%TEMP% apunta a la carpeta de temporales del usuario."
+            },
+            {
+                id: 13,
+                title: "Directorio de Windows",
+                category: "cmd",
+                description: "Muestra la ruta donde está instalado Windows usando SYSTEMROOT.",
+                hint: "SYSTEMROOT contiene la ruta de Windows.",
+                answers: ["echo %systemroot%", "echo %SYSTEMROOT%"],
+                xp: 40,
+                explanation: "%SYSTEMROOT% típicamente es C:\\Windows."
+            },
+            {
+                id: 14,
+                title: "Crear variable",
+                category: "cmd",
+                description: "Crea una variable llamada 'MIVAR' con el valor 'Hola Mundo' usando SET.",
+                hint: "SET nombre=valor (sin espacios alrededor del =).",
+                answers: ["set mivar=Hola Mundo", "set MIVAR=Hola Mundo"],
+                xp: 45,
+                explanation: "SET crea variables de entorno para la sesión actual."
+            },
+            {
+                id: 15,
+                title: "Variable permanente",
+                category: "cmd",
+                description: "Crea una variable permanente 'SERVIDOR' con valor '192.168.1.1' usando SETX.",
+                hint: "SETX es como SET pero permanente. Sintaxis: SETX nombre valor.",
+                answers: ["setx servidor 192.168.1.1", "setx SERVIDOR 192.168.1.1"],
+                xp: 50,
+                explanation: "SETX crea variables de entorno permanentes."
+            },
+
+            // CATEGORÍA: REDIRECCIONES
+            {
+                id: 16,
+                title: "Guardar listado en archivo",
+                category: "cmd",
+                description: "Guarda la lista de archivos del directorio actual en un archivo llamado 'lista.txt' (sobrescribiendo).",
+                hint: "Usa > para redirigir la salida a un archivo.",
+                answers: ["dir > lista.txt"],
+                xp: 45,
+                explanation: "> redirige la salida sobrescribiendo el archivo destino."
+            },
+            {
+                id: 17,
+                title: "Añadir a archivo",
+                category: "cmd",
+                description: "Añade el texto 'Nueva linea' al final del archivo 'log.txt' sin borrar el contenido anterior.",
+                hint: ">> añade en lugar de sobrescribir.",
+                answers: ["echo nueva linea >> log.txt", "echo Nueva linea >> log.txt", "echo nueva linea >>log.txt"],
+                xp: 50,
+                explanation: ">> añade la salida al final del archivo existente."
+            },
+            {
+                id: 18,
+                title: "Redirigir errores",
+                category: "cmd",
+                description: "Ejecuta 'dir z:\\' y redirige solo los mensajes de error a 'errores.txt'.",
+                hint: "2> redirige stderr (errores). El flujo de errores es el número 2.",
+                answers: ["dir z:\\ 2> errores.txt", "dir z:\\ 2>errores.txt", "dir z:/ 2> errores.txt"],
+                xp: 55,
+                explanation: "2> redirige la salida de errores (stderr) a un archivo."
+            },
+            {
+                id: 19,
+                title: "Descartar salida",
+                category: "cmd",
+                description: "Ejecuta 'copy archivo.txt backup\\' descartando completamente la salida (enviándola a NUL).",
+                hint: "NUL es como un 'agujero negro' - todo lo que le envías desaparece.",
+                answers: ["copy archivo.txt backup\\ > nul", "copy archivo.txt backup/ > nul", "copy archivo.txt backup\\>nul"],
+                xp: 50,
+                explanation: "> NUL descarta la salida completamente."
+            },
+            {
+                id: 20,
+                title: "Usar pipe",
+                category: "cmd",
+                description: "Lista los archivos del directorio y filtra solo las líneas que contengan '.txt' usando FIND.",
+                hint: "El pipe | envía la salida de un comando como entrada de otro.",
+                answers: ["dir | find \".txt\"", "dir | find \".TXT\"", "dir |find \".txt\""],
+                xp: 55,
+                explanation: "| (pipe) conecta la salida de un comando con la entrada de otro."
+            },
+
+            // CATEGORÍA: OPERADORES LÓGICOS
+            {
+                id: 21,
+                title: "Ejecutar si éxito",
+                category: "cmd",
+                description: "Copia 'a.txt' a 'b.txt' y, SOLO SI tiene éxito, muestra 'Copiado OK'.",
+                hint: "&& ejecuta el segundo comando solo si el primero tuvo éxito (código 0).",
+                answers: ["copy a.txt b.txt && echo Copiado OK", "copy a.txt b.txt&&echo Copiado OK"],
+                xp: 55,
+                explanation: "&& (AND) ejecuta el siguiente comando solo si el anterior tuvo éxito."
+            },
+            {
+                id: 22,
+                title: "Ejecutar si falla",
+                category: "cmd",
+                description: "Intenta copiar 'origen.txt' a 'destino.txt' y, SOLO SI FALLA, muestra 'Error al copiar'.",
+                hint: "|| ejecuta el segundo comando solo si el primero falló.",
+                answers: ["copy origen.txt destino.txt || echo Error al copiar", "copy origen.txt destino.txt||echo Error al copiar"],
+                xp: 55,
+                explanation: "|| (OR) ejecuta el siguiente comando solo si el anterior falló."
+            },
+            {
+                id: 23,
+                title: "Ejecutar secuencial",
+                category: "cmd",
+                description: "Ejecuta 'dir' y luego 'pause', independientemente del resultado del primero.",
+                hint: "& ejecuta comandos secuencialmente sin importar el resultado.",
+                answers: ["dir & pause", "dir& pause", "dir &pause"],
+                xp: 45,
+                explanation: "& ejecuta comandos secuencialmente sin condiciones."
+            },
+
+            // CATEGORÍA: BUCLES FOR
+            {
+                id: 24,
+                title: "Bucle numérico",
+                category: "cmd",
+                description: "Escribe un bucle FOR que muestre los números del 1 al 5. Usa /L para bucle numérico.",
+                hint: "FOR /L %%i IN (inicio,incremento,fin) DO comando. En consola usa %i.",
+                answers: ["for /l %i in (1,1,5) do echo %i", "for /L %i in (1,1,5) do echo %i"],
+                xp: 65,
+                explanation: "FOR /L permite crear bucles numéricos con inicio, incremento y fin."
+            },
+            {
+                id: 25,
+                title: "Recorrer archivos txt",
+                category: "cmd",
+                description: "Escribe un FOR que muestre todos los archivos .txt del directorio actual.",
+                hint: "FOR %i IN (patron) DO comando. El patrón sería *.txt.",
+                answers: ["for %i in (*.txt) do echo %i", "for %f in (*.txt) do echo %f"],
+                xp: 60,
+                explanation: "FOR sin modificador recorre archivos que coinciden con el patrón."
+            },
+
+            // CATEGORÍA: CONDICIONALES IF
+            {
+                id: 26,
+                title: "Comprobar si existe",
+                category: "cmd",
+                description: "Comprueba si existe el archivo 'config.ini' y si existe muestra 'Encontrado'.",
+                hint: "IF EXIST archivo comando.",
+                answers: ["if exist config.ini echo Encontrado", "IF EXIST config.ini echo Encontrado"],
+                xp: 55,
+                explanation: "IF EXIST comprueba si un archivo o directorio existe."
+            },
+            {
+                id: 27,
+                title: "Comparar números",
+                category: "cmd",
+                description: "Compara si %ERRORLEVEL% es igual a 0 y muestra 'Sin errores'. Usa EQU para igualdad.",
+                hint: "IF valor1 EQU valor2 comando. EQU = Equal (igual).",
+                answers: ["if %errorlevel% equ 0 echo Sin errores", "if %ERRORLEVEL% EQU 0 echo Sin errores", "if %errorlevel% EQU 0 echo Sin errores"],
+                xp: 60,
+                explanation: "EQU compara si dos valores numéricos son iguales. También: NEQ, LSS, LEQ, GTR, GEQ."
+            },
+
+            // CATEGORÍA: SCRIPTS BAT
+            {
+                id: 28,
+                title: "Ocultar comandos",
+                category: "cmd",
+                description: "¿Qué línea pones al inicio de un script BAT para ocultar los comandos mientras se ejecutan?",
+                hint: "Se usa @ para ocultar una línea, y ECHO OFF para ocultar todas las siguientes.",
+                answers: ["@echo off", "@ECHO OFF"],
+                xp: 50,
+                explanation: "@ECHO OFF oculta la visualización de comandos en scripts BAT."
+            },
+            {
+                id: 29,
+                title: "Comentario en BAT",
+                category: "cmd",
+                description: "Escribe un comentario que diga 'Este es un comentario' en un script BAT.",
+                hint: "REM (remark) se usa para comentarios.",
+                answers: ["rem este es un comentario", "REM Este es un comentario", "rem Este es un comentario"],
+                xp: 40,
+                explanation: "REM permite añadir comentarios en scripts BAT."
+            },
+            {
+                id: 30,
+                title: "Variable en BAT",
+                category: "cmd",
+                description: "En un script BAT, ¿cómo se escribe una variable de bucle FOR? (solo el formato de la variable)",
+                hint: "En línea de comandos es %i, pero en scripts BAT lleva doble %.",
+                answers: ["%%i", "%%I", "%%variable"],
+                xp: 55,
+                explanation: "En scripts BAT las variables FOR usan %% en lugar de %."
+            },
+
+            // CATEGORÍA: TAREAS PROGRAMADAS
+            {
+                id: 31,
+                title: "Crear tarea programada",
+                category: "cmd",
+                description: "Crea una tarea llamada 'MiBackup' que ejecute 'backup.bat' diariamente a las 10:00.",
+                hint: "SCHTASKS /CREATE /TN nombre /TR comando /SC frecuencia /ST hora.",
+                answers: ["schtasks /create /tn mibackup /tr backup.bat /sc daily /st 10:00", "schtasks /create /tn MiBackup /tr backup.bat /sc daily /st 10:00"],
+                xp: 75,
+                explanation: "SCHTASKS permite crear y gestionar tareas programadas desde CMD."
+            },
+
+            // CATEGORÍA: POWERSHELL BÁSICO
+            {
+                id: 32,
+                title: "Listar procesos",
+                category: "powershell",
+                description: "En PowerShell, ¿qué cmdlet lista todos los procesos en ejecución?",
+                hint: "Los cmdlets de PowerShell siguen el formato Verbo-Sustantivo. Get = obtener, Process = proceso.",
+                answers: ["get-process", "Get-Process"],
+                xp: 50,
+                explanation: "Get-Process lista todos los procesos del sistema."
+            },
+            {
+                id: 33,
+                title: "Listar servicios",
+                category: "powershell",
+                description: "¿Qué cmdlet de PowerShell muestra todos los servicios de Windows?",
+                hint: "Get-??? donde ??? es Service.",
+                answers: ["get-service", "Get-Service"],
+                xp: 50,
+                explanation: "Get-Service lista los servicios de Windows."
+            },
+            {
+                id: 34,
+                title: "Listar archivos PowerShell",
+                category: "powershell",
+                description: "¿Qué cmdlet es equivalente a 'dir' en PowerShell? (el nombre completo)",
+                hint: "Get-ChildItem lista los 'hijos' (archivos y carpetas) de un directorio.",
+                answers: ["get-childitem", "Get-ChildItem"],
+                xp: 50,
+                explanation: "Get-ChildItem (alias: dir, ls, gci) lista el contenido de directorios."
+            },
+            {
+                id: 35,
+                title: "Detener proceso",
+                category: "powershell",
+                description: "¿Qué cmdlet detiene/mata un proceso en PowerShell?",
+                hint: "Stop-??? donde ??? es Process.",
+                answers: ["stop-process", "Stop-Process"],
+                xp: 50,
+                explanation: "Stop-Process termina procesos. Ej: Stop-Process -Name notepad."
+            },
+            {
+                id: 36,
+                title: "Iniciar servicio",
+                category: "powershell",
+                description: "¿Qué cmdlet inicia un servicio de Windows en PowerShell?",
+                hint: "Start-??? donde ??? es Service.",
+                answers: ["start-service", "Start-Service"],
+                xp: 50,
+                explanation: "Start-Service inicia servicios. Ej: Start-Service -Name Spooler."
+            },
+            {
+                id: 37,
+                title: "Filtrar con Where",
+                category: "powershell",
+                description: "¿Qué cmdlet se usa para filtrar objetos en un pipeline de PowerShell?",
+                hint: "Where-??? filtra según condiciones.",
+                answers: ["where-object", "Where-Object"],
+                xp: 55,
+                explanation: "Where-Object filtra objetos según condiciones especificadas."
+            },
+            {
+                id: 38,
+                title: "Ver política de ejecución",
+                category: "powershell",
+                description: "¿Qué cmdlet muestra la política de ejecución de scripts actual en PowerShell?",
+                hint: "Get-ExecutionPolicy (sin espacio).",
+                answers: ["get-executionpolicy", "Get-ExecutionPolicy"],
+                xp: 60,
+                explanation: "Get-ExecutionPolicy muestra qué scripts pueden ejecutarse."
+            },
+            {
+                id: 39,
+                title: "Test de conexión",
+                category: "powershell",
+                description: "¿Qué cmdlet de PowerShell es equivalente a 'ping' para probar conectividad?",
+                hint: "Test-NetConnection o Test-Connection.",
+                answers: ["test-connection", "Test-Connection", "test-netconnection", "Test-NetConnection"],
+                xp: 55,
+                explanation: "Test-Connection/Test-NetConnection prueban conectividad de red."
+            },
+            {
+                id: 40,
+                title: "Extensión scripts PS",
+                category: "powershell",
+                description: "¿Qué extensión tienen los scripts de PowerShell? (incluyendo el punto)",
+                hint: "P S 1 = .ps1",
+                answers: [".ps1", "ps1"],
+                xp: 45,
+                explanation: "Los scripts de PowerShell usan la extensión .ps1"
+            }
+        ];
+
+        const ranks = [
+            { name: "🔰 Novato", minXp: 0, next: "Aprendiz" },
+            { name: "📗 Aprendiz", minXp: 200, next: "Técnico Jr" },
+            { name: "💻 Técnico Jr", minXp: 500, next: "Técnico" },
+            { name: "🖥️ Técnico", minXp: 900, next: "Técnico Sr" },
+            { name: "⚡ Técnico Sr", minXp: 1400, next: "Admin Jr" },
+            { name: "🔧 Admin Jr", minXp: 2000, next: "Admin" },
+            { name: "🛠️ Admin", minXp: 2700, next: "SysAdmin" },
+            { name: "🏆 SysAdmin", minXp: 3500, next: "Máximo rango" }
+        ];
+
+        // ==================== GAME STATE ====================
+        let gameState = {
+            xp: 0,
+            level: 1,
+            completed: [],
+            currentMission: null,
+            streak: 0,
+            filter: 'all'
+        };
+
+        // ==================== DOM ELEMENTS ====================
+        const elements = {
+            startScreen: document.getElementById('startScreen'),
+            missionsList: document.getElementById('missionsList'),
+            briefingTitle: document.getElementById('briefingTitle'),
+            briefingDescription: document.getElementById('briefingDescription'),
+            briefingHint: document.getElementById('briefingHint'),
+            briefingBadge: document.getElementById('briefingBadge'),
+            terminalOutput: document.getElementById('terminalOutput'),
+            terminalInput: document.getElementById('terminalInput'),
+            terminalPrompt: document.getElementById('terminalPrompt'),
+            terminalMode: document.getElementById('terminalMode'),
+            feedbackOverlay: document.getElementById('feedbackOverlay'),
+            feedbackCard: document.getElementById('feedbackCard'),
+            feedbackIcon: document.getElementById('feedbackIcon'),
+            feedbackTitle: document.getElementById('feedbackTitle'),
+            feedbackMessage: document.getElementById('feedbackMessage'),
+            feedbackXp: document.getElementById('feedbackXp'),
+            xpValue: document.getElementById('xpValue'),
+            completedValue: document.getElementById('completedValue'),
+            streakValue: document.getElementById('streakValue'),
+            levelValue: document.getElementById('levelValue'),
+            xpProgress: document.getElementById('xpProgress'),
+            progressFill: document.getElementById('progressFill'),
+            rankTitle: document.getElementById('rankTitle'),
+            helpPanel: document.getElementById('helpPanel')
+        };
+
+        // ==================== FUNCTIONS ====================
+        function loadState() {
+            const saved = localStorage.getItem('cmdQuestState');
+            if (saved) {
+                gameState = JSON.parse(saved);
+            }
+        }
+
+        function saveState() {
+            localStorage.setItem('cmdQuestState', JSON.stringify(gameState));
+        }
+
+        function startGame() {
+            elements.startScreen.classList.add('hidden');
+            elements.terminalInput.focus();
+        }
+
+        function renderMissions() {
+            const filtered = missions.filter(m => 
+                gameState.filter === 'all' || m.category === gameState.filter
+            );
+
+            elements.missionsList.innerHTML = filtered.map(mission => {
+                const isCompleted = gameState.completed.includes(mission.id);
+                const isActive = gameState.currentMission === mission.id;
+                const statusClass = isCompleted ? 'completed' : 'pending';
+                const itemClass = isActive ? 'active' : (isCompleted ? 'completed' : '');
+
+                return `
+                    <div class="mission-item ${itemClass}" onclick="selectMission(${mission.id})">
+                        <div class="mission-status ${statusClass}">
+                            ${isCompleted ? '✓' : mission.id}
+                        </div>
+                        <div class="mission-info">
+                            <div class="mission-title">${mission.title}</div>
+                            <div class="mission-category">${mission.category.toUpperCase()}</div>
+                        </div>
+                        <div class="mission-xp">${mission.xp} XP</div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function filterMissions(filter) {
+            gameState.filter = filter;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.textContent.toLowerCase().includes(filter) || 
+                    (filter === 'all' && btn.textContent === 'Todas'));
+            });
+            renderMissions();
+        }
+
+        function selectMission(id) {
+            const mission = missions.find(m => m.id === id);
+            if (!mission) return;
+
+            gameState.currentMission = id;
+            renderMissions();
+
+            // Update briefing
+            elements.briefingTitle.textContent = `Misión ${mission.id}: ${mission.title}`;
+            elements.briefingDescription.textContent = mission.description;
+            elements.briefingHint.innerHTML = `<strong>💡 Pista:</strong> ${mission.hint}`;
+            
+            // Update badge
+            elements.briefingBadge.textContent = mission.category.toUpperCase();
+            elements.briefingBadge.className = `briefing-badge badge-${mission.category}`;
+
+            // Update terminal mode
+            if (mission.category === 'powershell') {
+                elements.terminalMode.textContent = 'PowerShell';
+                elements.terminalMode.className = 'terminal-mode mode-powershell';
+                elements.terminalPrompt.textContent = 'PS C:\\Users\\Operador>';
+            } else {
+                elements.terminalMode.textContent = 'CMD';
+                elements.terminalMode.className = 'terminal-mode mode-cmd';
+                elements.terminalPrompt.textContent = 'C:\\Users\\Operador>';
+            }
+
+            addOutput(`\n--- Misión ${mission.id}: ${mission.title} ---`, 'info');
+            addOutput(mission.description, 'system');
+
+            elements.terminalInput.focus();
+        }
+
+        function addOutput(text, type = '') {
+            const line = document.createElement('div');
+            line.className = `output-line ${type}`;
+            line.textContent = text;
+            elements.terminalOutput.appendChild(line);
+            elements.terminalOutput.scrollTop = elements.terminalOutput.scrollHeight;
+        }
+
+        function checkAnswer(input) {
+            if (!gameState.currentMission) {
+                addOutput('Selecciona una misión primero.', 'error');
+                return;
+            }
+
+            const mission = missions.find(m => m.id === gameState.currentMission);
+            const normalizedInput = input.toLowerCase().trim();
+            const isCorrect = mission.answers.some(a => a.toLowerCase() === normalizedInput);
+
+            addOutput(`> ${input}`, '');
+
+            if (isCorrect) {
+                if (!gameState.completed.includes(mission.id)) {
+                    gameState.completed.push(mission.id);
+                    gameState.xp += mission.xp;
+                    gameState.streak++;
+                    saveState();
+                    updateStats();
+                    showFeedback(true, mission);
+                } else {
+                    addOutput('✓ Correcto (ya completada)', 'success');
+                }
+            } else {
+                gameState.streak = 0;
+                showFeedback(false, mission, input);
+                updateStats();
+            }
+        }
+
+        function showFeedback(success, mission, userInput = '') {
+            elements.feedbackCard.className = success ? 'feedback-card' : 'feedback-card error';
+            elements.feedbackIcon.textContent = success ? '✅' : '❌';
+            elements.feedbackTitle.textContent = success ? '¡Misión Completada!' : 'Respuesta Incorrecta';
+            
+            if (success) {
+                elements.feedbackMessage.innerHTML = `
+                    <strong>${mission.title}</strong><br><br>
+                    ${mission.explanation}
+                `;
+                elements.feedbackXp.textContent = `+${mission.xp} XP`;
+                elements.feedbackXp.style.display = 'block';
+            } else {
+                elements.feedbackMessage.innerHTML = `
+                    Tu respuesta: <code>${userInput}</code><br><br>
+                    ${mission.hint}<br><br>
+                    <em>¡Inténtalo de nuevo!</em>
+                `;
+                elements.feedbackXp.style.display = 'none';
+            }
+
+            elements.feedbackOverlay.classList.add('show');
+        }
+
+        function closeFeedback() {
+            elements.feedbackOverlay.classList.remove('show');
+            elements.terminalInput.focus();
+            renderMissions();
+
+            // Auto-select next mission if completed
+            if (gameState.completed.includes(gameState.currentMission)) {
+                const nextMission = missions.find(m => !gameState.completed.includes(m.id));
+                if (nextMission) {
+                    selectMission(nextMission.id);
+                }
+            }
+        }
+
+        function updateStats() {
+            elements.xpValue.textContent = gameState.xp;
+            elements.completedValue.textContent = `${gameState.completed.length}/${missions.length}`;
+            elements.streakValue.textContent = gameState.streak;
+
+            // Calculate level and progress
+            const xpPerLevel = 100;
+            gameState.level = Math.floor(gameState.xp / xpPerLevel) + 1;
+            const currentLevelXp = gameState.xp % xpPerLevel;
+            const progressPercent = (currentLevelXp / xpPerLevel) * 100;
+
+            elements.levelValue.textContent = gameState.level;
+            elements.xpProgress.textContent = `${currentLevelXp}/${xpPerLevel} XP`;
+            elements.progressFill.style.width = `${progressPercent}%`;
+
+            // Update rank
+            const rank = ranks.slice().reverse().find(r => gameState.xp >= r.minXp) || ranks[0];
+            elements.rankTitle.textContent = rank.name;
+            document.querySelector('.rank-subtitle').textContent = `Siguiente: ${rank.next}`;
+        }
+
+        function toggleHelp() {
+            elements.helpPanel.classList.toggle('show');
+        }
+
+        // ==================== EVENT LISTENERS ====================
+        elements.terminalInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const input = elements.terminalInput.value.trim();
+                if (input) {
+                    checkAnswer(input);
+                    elements.terminalInput.value = '';
+                }
+            }
+        });
+
+        // Close help when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.help-panel') && !e.target.closest('.help-toggle')) {
+                elements.helpPanel.classList.remove('show');
+            }
+        });
+
+        // ==================== INIT ====================
+        loadState();
+        renderMissions();
+        updateStats();
+
+        // Select first uncompleted mission
+        const firstUncompleted = missions.find(m => !gameState.completed.includes(m.id));
+        if (firstUncompleted) {
+            selectMission(firstUncompleted.id);
+        }
+    </script>
+</body>
+</html>
