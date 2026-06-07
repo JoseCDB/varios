@@ -1,0 +1,198 @@
+{
+  "examen": {
+    "totalPreguntas": 80,
+    "preguntasReserva": 8,
+    "opciones": 4,
+    "tiempoMinutos": 90,
+    "aciertoSuma": 1,
+    "falloResta": 0.33
+  },
+  "temas": {
+    "1": {
+      "bloque": 1,
+      "titulo": "Estatutos de la UVa (I): Titulo Preliminar y Titulo I"
+    },
+    "2": {
+      "bloque": 1,
+      "titulo": "Estatutos de la UVa (II): Titulos V-XI y disposiciones"
+    },
+    "3": {
+      "bloque": 1,
+      "titulo": "II Convenio Colectivo del PAS de las Universidades Publicas de CyL"
+    },
+    "4": {
+      "bloque": 1,
+      "titulo": "Ley 31/1995 de Prevencion de Riesgos Laborales"
+    },
+    "5": {
+      "bloque": 1,
+      "titulo": "Ley Organica 3/2007 para la igualdad efectiva de mujeres y hombres"
+    },
+    "6": {
+      "bloque": 1,
+      "titulo": "RGPD (UE) 2016/679 y LOPDGDD 3/2018 (Titulo X)"
+    },
+    "7": {
+      "bloque": 2,
+      "titulo": "Redes de ordenadores, hosts, subredes. Arquitectura TCP/IP"
+    },
+    "8": {
+      "bloque": 2,
+      "titulo": "Capa fisica. Medios de transmision y cableado estructurado"
+    },
+    "9": {
+      "bloque": 2,
+      "titulo": "Armarios de telecomunicaciones. Parcheo de cables"
+    },
+    "10": {
+      "bloque": 2,
+      "titulo": "Sala de ordenadores. SAI, temperatura, redundancia, alarmas"
+    },
+    "11": {
+      "bloque": 2,
+      "titulo": "Protocolos TCP/IP: FTP, SFTP, SNMP, SMTP, DNS, HTTP, NTP..."
+    },
+    "12": {
+      "bloque": 2,
+      "titulo": "Conexiones inalambricas. Espectro, canales, WPA2/WPA3"
+    },
+    "13": {
+      "bloque": 2,
+      "titulo": "Arquitectura y componentes internos del PC"
+    },
+    "14": {
+      "bloque": 2,
+      "titulo": "BIOS y POST. Arranque. Diagnostico y resolucion de averias"
+    },
+    "15": {
+      "bloque": 2,
+      "titulo": "Windows 11 (I): instalacion y componentes"
+    },
+    "16": {
+      "bloque": 2,
+      "titulo": "Windows 11 (II): panel de control, administracion, ficheros BAT"
+    },
+    "17": {
+      "bloque": 2,
+      "titulo": "Linux (I): instalacion, administracion, sistema de archivos"
+    },
+    "18": {
+      "bloque": 2,
+      "titulo": "Linux (II): Shell de Unix/Linux. Scripts"
+    },
+    "19": {
+      "bloque": 2,
+      "titulo": "macOS 15 y posteriores (I): instalacion y gestion basica"
+    },
+    "20": {
+      "bloque": 2,
+      "titulo": "Microsoft 365 y OneDrive"
+    },
+    "21": {
+      "bloque": 2,
+      "titulo": "Comparticion de recursos en redes locales (Windows/Linux/macOS)"
+    },
+    "22": {
+      "bloque": 2,
+      "titulo": "Perifericos: tipos, medidas, cables y conectores"
+    },
+    "23": {
+      "bloque": 2,
+      "titulo": "Discos duros e interfaces: SATA, PCIe, NVMe, M.2, Thunderbolt"
+    },
+    "24": {
+      "bloque": 2,
+      "titulo": "Almacenamiento DAS, NAS, SAN. RAID"
+    },
+    "25": {
+      "bloque": 2,
+      "titulo": "Correo electronico: SMTP, POP3, IMAP, MIME, Outlook, M365"
+    },
+    "26": {
+      "bloque": 2,
+      "titulo": "Moodle: plataforma de docencia online"
+    },
+    "27": {
+      "bloque": 2,
+      "titulo": "Identidades digitales. SSO. MFA"
+    },
+    "28": {
+      "bloque": 2,
+      "titulo": "PKI. Cifrado simetrico/asimetrico. Hash. Certificados X.509"
+    },
+    "29": {
+      "bloque": 2,
+      "titulo": "Seguridad logica (I): configuracion en Windows/Linux/macOS"
+    },
+    "30": {
+      "bloque": 2,
+      "titulo": "Seguridad logica (II): ataques por correo, credenciales, ransomware"
+    }
+  },
+  "distribucionExamen": {
+    "1": 2.25,
+    "2": 1,
+    "3": 1.5,
+    "4": 1.25,
+    "5": 1.25,
+    "6": 0.5,
+    "7": 7,
+    "8": 0.25,
+    "9": 1,
+    "10": 1.25,
+    "11": 2,
+    "12": 1.75,
+    "13": 5,
+    "14": 1.75,
+    "15": 4.25,
+    "16": 1.75,
+    "17": 10.75,
+    "18": 8,
+    "19": 3,
+    "20": 1,
+    "21": 0.75,
+    "22": 4,
+    "23": 4,
+    "24": 7,
+    "25": 2.5,
+    "26": 0.5,
+    "27": 3,
+    "28": 1.25,
+    "29": 2,
+    "30": 1
+  },
+  "inventario": {
+    "1": 48,
+    "2": 51,
+    "3": 51,
+    "4": 48,
+    "5": 46,
+    "6": 32,
+    "7": 68,
+    "8": 19,
+    "9": 24,
+    "10": 25,
+    "11": 60,
+    "12": 28,
+    "13": 78,
+    "14": 42,
+    "15": 38,
+    "16": 52,
+    "17": 146,
+    "18": 111,
+    "19": 45,
+    "20": 24,
+    "21": 23,
+    "22": 82,
+    "23": 49,
+    "24": 103,
+    "25": 23,
+    "26": 22,
+    "27": 45,
+    "28": 37,
+    "29": 30,
+    "30": 37
+  },
+  "generado": "2026-06-07T07:23:57.502Z",
+  "totalPreguntas": 1487
+}
