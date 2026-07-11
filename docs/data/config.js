@@ -193,6 +193,6 @@ window.CONFIG = {
     "29": 55,
     "30": 61
   },
-  "generado": "2026-06-20T20:47:38.977Z",
+  "generado": "2026-07-11T14:20:47.108Z",
   "totalPreguntas": 2191
 };

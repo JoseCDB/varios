@@ -1,6 +1,11 @@
 /* =========================================================================
  * Generador de Exámenes · Operador de Informática UVa
  * App estática (vanilla JS). Datos en window.BANCO y window.CONFIG.
+ * Persistencia ligera en localStorage (sin servidor ni BBDD):
+ *   opos.enCurso   -> examen a medio hacer (para reanudar tras recarga)
+ *   opos.historial -> últimos 50 resultados
+ *   opos.falladas  -> ids de preguntas falladas pendientes de dominar
+ *   opos.vistas    -> ids ya aparecidas (para no repetir entre exámenes)
  * ========================================================================= */
 (function () {
   'use strict';
@@ -9,19 +14,28 @@
   const CONFIG = window.CONFIG || {};
   const TEMAS = CONFIG.temas || {};
   const DIST = CONFIG.distribucionExamen || {};
-  const EX = CONFIG.examen || { totalPreguntas: 80, opciones: 4, tiempoMinutos: 90, aciertoSuma: 1, falloResta: 0.33 };
+  const EX = CONFIG.examen || { totalPreguntas: 80, preguntasReserva: 8, opciones: 4, tiempoMinutos: 90, aciertoSuma: 1, falloResta: 0.33 };
+  const POR_ID = new Map(BANCO.map(q => [q.id, q]));
 
   // ----- Estado -----
-  let modo = null;                 // 'real' | 'rapido' | 'temas'
-  let examen = [];                 // preguntas del examen actual (con orden de opciones)
-  let respuestas = {};             // qid -> letra elegida (original)
+  let modo = null;                 // 'real' | 'rapido' | 'temas' | 'falladas'
+  let examen = [];                 // [{ref, orden, reserva}]
+  let respuestas = {};             // qid -> letra elegida (clave original)
   let timerId = null;
   let segundosRestantes = 0;
+  let idxActual = 0;               // pregunta visible (paleta/teclado)
+  let observer = null;
 
   // ----- Utilidades -----
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
   const LETRAS = ['a', 'b', 'c', 'd', 'e', 'f'];
+
+  const LS = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* modo privado o cuota */ } },
+    del(k) { try { localStorage.removeItem(k); } catch { } },
+  };
 
   function shuffle(arr) {
     const a = arr.slice();
@@ -37,6 +51,17 @@
     return info ? `Tema ${t}. ${info.titulo}` : `Tema ${t}`;
   }
 
+  // Origen de la pregunta (para la revisión)
+  function origenTag(q) {
+    if (/^E22/.test(q.id)) return 'Examen oficial 2022';
+    if (/^E23/.test(q.id)) return 'Examen oficial 2023';
+    if (/^E24/.test(q.id)) return 'Examen oficial 2024';
+    if (/^X26/.test(q.id)) return 'Examen oficial 2026';
+    if (q.origen === 'oficial') return 'Examen oficial';
+    if (q.origen === 'estudio') return 'Redactada del temario 2026';
+    return '';
+  }
+
   function inventarioPorTema() {
     const inv = {};
     BANCO.forEach(q => { inv[q.tema] = (inv[q.tema] || 0) + 1; });
@@ -44,13 +69,15 @@
   }
   const INV = inventarioPorTema();
 
+  const falladasSet = () => new Set(LS.get('opos.falladas', []));
+
   // =======================================================================
-  // INICIO: render info banco + selector de temas
+  // INICIO: render info banco + selector de temas + progreso + reanudar
   // =======================================================================
   function initHome() {
     const totalTemas = Object.keys(TEMAS).length;
     $('#bank-info').innerHTML =
-      `<strong>${BANCO.length}</strong> preguntas · ${totalTemas} temas<br>Funciona sin conexión`;
+      `<strong>${BANCO.length}</strong> preguntas · ${totalTemas} temas<br>Datos locales · sin servidor`;
 
     // Selector de temas
     const grid = $('#temas-grid');
@@ -86,10 +113,102 @@
     $('#start-exam').addEventListener('click', comenzarExamen);
     $('#review-btn').addEventListener('click', mostrarRevision);
     $('#new-exam-btn').addEventListener('click', volverInicio);
-    $('#finish-exam').addEventListener('click', corregirExamen);
+    $('#retry-failed-btn').addEventListener('click', repetirFalladasExamen);
+    $('#finish-exam').addEventListener('click', () => corregirExamen(false));
     $('#abandon-exam').addEventListener('click', () => {
-      if (confirm('¿Seguro que quieres abandonar el examen? Se perderán las respuestas.')) volverInicio();
+      if (confirm('¿Seguro que quieres abandonar el examen? Se perderán las respuestas.')) {
+        limpiarEnCurso();
+        volverInicio();
+      }
     });
+
+    // Historial
+    $('#clear-history').addEventListener('click', () => {
+      if (confirm('¿Borrar todo el progreso guardado (historial y falladas)? Esta acción no se puede deshacer.')) {
+        LS.del('opos.historial'); LS.del('opos.falladas'); LS.del('opos.vistas');
+        refrescarHome();
+      }
+    });
+
+    // Reanudar examen guardado
+    $('#resume-yes').addEventListener('click', reanudarExamen);
+    $('#resume-no').addEventListener('click', () => { limpiarEnCurso(); refrescarHome(); });
+
+    // Teclado
+    document.addEventListener('keydown', onKeydown);
+
+    // Guardado ante cierre/recarga
+    window.addEventListener('beforeunload', guardarEnCurso);
+    document.addEventListener('visibilitychange', () => { if (document.hidden) guardarEnCurso(); });
+
+    refrescarHome();
+  }
+
+  function refrescarHome() {
+    // Tarjeta modo falladas
+    const nFall = falladasSet().size;
+    const cardFall = $('.mode-card[data-modo="falladas"]');
+    cardFall.classList.toggle('hidden', nFall === 0);
+    $('#falladas-count').textContent = nFall;
+
+    // Barra de reanudar
+    const data = LS.get('opos.enCurso', null);
+    const bar = $('#resume-bar');
+    const valido = data && Array.isArray(data.ids) && data.ids.length && data.ids.some(id => POR_ID.has(id));
+    if (valido) {
+      const resp = Object.keys(data.respuestas || {}).length;
+      $('#resume-text').textContent =
+        `Tienes un examen a medio hacer (${resp}/${data.ids.length} respondidas${data.seg != null ? ', con cronómetro' : ''}).`;
+      bar.classList.remove('hidden');
+    } else {
+      bar.classList.add('hidden');
+      if (data) limpiarEnCurso();
+    }
+
+    renderHistorial();
+  }
+
+  function renderHistorial() {
+    const hist = LS.get('opos.historial', []);
+    const card = $('#history-card');
+    card.classList.toggle('hidden', hist.length === 0);
+    if (!hist.length) return;
+
+    const nombres = { real: 'Real', rapido: 'Rápido', temas: 'Por temas', falladas: 'Falladas' };
+    const list = $('#history-list');
+    list.innerHTML = '';
+    hist.slice(0, 6).forEach(h => {
+      const d = new Date(h.f);
+      const fecha = `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      const cls = h.nota10 >= 5 ? 'good' : h.nota10 >= 4 ? 'mid' : 'bad';
+      const row = document.createElement('div');
+      row.className = 'hist-row';
+      row.innerHTML = `<span class="h-fecha">${fecha}</span>
+        <span class="h-modo">${nombres[h.modo] || h.modo} · ${h.n} preg</span>
+        <span class="h-detalle">${h.ok}✓ ${h.bad}✗ ${h.blank}·</span>
+        <span class="h-nota ${cls}">${h.nota10.toFixed(2)}/10</span>`;
+      list.appendChild(row);
+    });
+
+    // Peores temas acumulados (mínimo 6 preguntas vistas del tema)
+    const acum = {};
+    hist.forEach(h => {
+      Object.entries(h.porTema || {}).forEach(([t, d]) => {
+        acum[t] = acum[t] || { ok: 0, total: 0 };
+        acum[t].ok += d.ok; acum[t].total += d.total;
+      });
+    });
+    const peores = Object.entries(acum)
+      .filter(([, d]) => d.total >= 6)
+      .map(([t, d]) => ({ t: Number(t), pct: d.ok / d.total, d }))
+      .sort((a, b) => a.pct - b.pct)
+      .slice(0, 3);
+    const cont = $('#worst-temas');
+    cont.innerHTML = '';
+    if (peores.length) {
+      cont.innerHTML = '<span class="muted">Temas que más fallas:</span> ' + peores
+        .map(p => `<span class="worst-tag">T${p.t} (${Math.round(p.pct * 100)}% · ${p.d.ok}/${p.d.total})</span>`).join(' ');
+    }
   }
 
   function setTemas(pred) {
@@ -110,13 +229,14 @@
     const panel = $('#config-panel');
     panel.classList.remove('hidden');
 
-    const titulos = { real: 'Examen real (formato convocatoria)', rapido: 'Examen rápido', temas: 'Examen por temas' };
+    const titulos = { real: 'Examen real (formato convocatoria)', rapido: 'Examen rápido', temas: 'Examen por temas', falladas: 'Repaso de falladas' };
     $('#config-title').textContent = titulos[m];
 
     // Mostrar/ocultar filas según modo
     $('#row-count').classList.toggle('hidden', m === 'real');
     $('#row-temas').classList.toggle('hidden', m !== 'temas');
     $('#row-timer').classList.toggle('hidden', m === 'real');
+    $('#row-reserva').classList.toggle('hidden', m !== 'real');
 
     if (m === 'temas') setTemas(() => true);
     if (m === 'rapido') setTemas(() => true);
@@ -142,28 +262,47 @@
       const temas = temasSeleccionados();
       const disp = temas.reduce((s, t) => s + (INV[t] || 0), 0);
       sum.textContent = `${temas.length} temas · ${Math.min(n, disp)} de ${n} preguntas (disponibles: ${disp})`;
+    } else if (modo === 'falladas') {
+      const disp = falladasSet().size;
+      sum.textContent = `${Math.min(n, disp)} de tus ${disp} preguntas falladas pendientes`;
     } else {
       sum.textContent = `${n} preguntas aleatorias de todo el temario`;
     }
   }
 
   // =======================================================================
-  // GENERACIÓN DEL EXAMEN
+  // GENERACIÓN DEL EXAMEN (prefiere preguntas aún no vistas)
   // =======================================================================
-  function tomarAleatorias(pool, n, excluidasIds) {
-    const disponibles = shuffle(pool.filter(q => !excluidasIds.has(q.id)));
-    return disponibles.slice(0, n);
+  function tomarAleatorias(pool, n, excluidasIds, preferirNuevas = true) {
+    const cand = pool.filter(q => !excluidasIds.has(q.id));
+    if (!preferirNuevas) return shuffle(cand).slice(0, n);
+    const vistas = new Set(LS.get('opos.vistas', []));
+    const nuevas = shuffle(cand.filter(q => !vistas.has(q.id)));
+    if (nuevas.length >= n) return nuevas.slice(0, n);
+    const repetidas = shuffle(cand.filter(q => vistas.has(q.id)));
+    return nuevas.concat(repetidas.slice(0, n - nuevas.length));
+  }
+
+  function registrarVistas(ids) {
+    let vistas = LS.get('opos.vistas', []);
+    const set = new Set(vistas);
+    ids.forEach(id => set.add(id));
+    // Ciclo completo: cuando casi todo el banco está visto, se reinicia el contador
+    if (set.size >= BANCO.length * 0.9) {
+      LS.set('opos.vistas', ids.slice());
+    } else {
+      LS.set('opos.vistas', Array.from(set));
+    }
   }
 
   function construirExamen() {
     const barajarOpts = $('#cfg-shuffle-opts').checked;
     let seleccion = [];
+    let reserva = [];
     const usadas = new Set();
 
     if (modo === 'real') {
-      // Distribución por tema según histórico; redondea y completa hasta el total.
       const objetivo = EX.totalPreguntas;
-      // 1) por tema según distribución
       for (let t = 1; t <= 30; t++) {
         const cuota = Math.round(DIST[t] || 0);
         if (cuota <= 0) continue;
@@ -172,14 +311,24 @@
         elegidas.forEach(q => usadas.add(q.id));
         seleccion = seleccion.concat(elegidas);
       }
-      // 2) completar/recortar al objetivo
       if (seleccion.length > objetivo) {
         seleccion = shuffle(seleccion).slice(0, objetivo);
       } else if (seleccion.length < objetivo) {
         const resto = tomarAleatorias(BANCO, objetivo - seleccion.length, usadas);
+        resto.forEach(q => usadas.add(q.id));
         seleccion = seleccion.concat(resto);
       }
       seleccion = shuffle(seleccion);
+      // Preguntas de reserva (como en la convocatoria: 8 extra al final)
+      if ($('#cfg-reserva').checked) {
+        seleccion.forEach(q => usadas.add(q.id));
+        reserva = tomarAleatorias(BANCO, EX.preguntasReserva || 8, usadas);
+      }
+    } else if (modo === 'falladas') {
+      const n = Number($('#cfg-count').value);
+      const set = falladasSet();
+      const pool = BANCO.filter(q => set.has(q.id));
+      seleccion = tomarAleatorias(pool, n, usadas, false);
     } else {
       const n = Number($('#cfg-count').value);
       let pool = BANCO;
@@ -190,12 +339,14 @@
       seleccion = tomarAleatorias(pool, n, usadas);
     }
 
-    // Preparar cada pregunta con orden de opciones
-    return seleccion.map(q => {
+    const prep = q => {
       const claves = Object.keys(q.opciones);
       const orden = barajarOpts ? shuffle(claves) : claves;
-      return { ref: q, orden };
-    });
+      return { ref: q, orden, reserva: false };
+    };
+    const items = seleccion.map(prep).concat(reserva.map(q => Object.assign(prep(q), { reserva: true })));
+    if (modo !== 'falladas') registrarVistas(items.map(it => it.ref.id));
+    return items;
   }
 
   function comenzarExamen() {
@@ -206,18 +357,64 @@
     examen = construirExamen();
     if (examen.length === 0) { alert('No hay preguntas disponibles con esa configuración.'); return; }
     respuestas = {};
+    idxActual = 0;
     renderExamen();
     cambiarVista('exam');
 
     // Cronómetro
     stopTimer();
+    segundosRestantes = 0;
     const conTimer = (modo === 'real') || $('#cfg-timer').checked;
     if (conTimer) {
-      const min = modo === 'real' ? EX.tiempoMinutos : Math.max(1, Math.round(examen.length * 1.1));
+      const nPrincipales = examen.filter(it => !it.reserva).length;
+      const min = modo === 'real' ? EX.tiempoMinutos : Math.max(1, Math.round(nPrincipales * 1.1));
       iniciarTimer(min * 60);
     } else {
       $('#timer').classList.add('hidden');
     }
+    guardarEnCurso();
+    window.scrollTo(0, 0);
+  }
+
+  // =======================================================================
+  // PERSISTENCIA DEL EXAMEN EN CURSO (localStorage)
+  // =======================================================================
+  function guardarEnCurso() {
+    if (!examen.length || $('#view-exam').classList.contains('hidden')) return;
+    LS.set('opos.enCurso', {
+      modo,
+      ts: Date.now(),
+      ids: examen.map(it => it.ref.id),
+      orden: Object.fromEntries(examen.map(it => [it.ref.id, it.orden])),
+      reservaIds: examen.filter(it => it.reserva).map(it => it.ref.id),
+      respuestas,
+      seg: timerId ? segundosRestantes : null,
+    });
+  }
+
+  function limpiarEnCurso() { LS.del('opos.enCurso'); }
+
+  function reanudarExamen() {
+    const data = LS.get('opos.enCurso', null);
+    if (!data || !Array.isArray(data.ids)) { refrescarHome(); return; }
+    const reservaIds = new Set(data.reservaIds || []);
+    examen = data.ids
+      .map(id => POR_ID.get(id))
+      .filter(Boolean)
+      .map(q => ({
+        ref: q,
+        orden: (data.orden && data.orden[q.id]) || Object.keys(q.opciones),
+        reserva: reservaIds.has(q.id),
+      }));
+    if (!examen.length) { limpiarEnCurso(); refrescarHome(); return; }
+    respuestas = data.respuestas || {};
+    modo = data.modo || 'rapido';
+    idxActual = 0;
+    renderExamen();
+    cambiarVista('exam');
+    stopTimer();
+    if (data.seg != null && data.seg > 0) iniciarTimer(data.seg);
+    else $('#timer').classList.add('hidden');
     window.scrollTo(0, 0);
   }
 
@@ -232,18 +429,34 @@
     $('#total-count').textContent = examen.length;
     renderPalette();
     actualizarProgreso();
+    observarPreguntaActual();
+  }
+
+  function numeroVisible(idx) {
+    const item = examen[idx];
+    if (!item.reserva) return String(idx + 1);
+    const nMain = examen.filter(it => !it.reserva).length;
+    return 'R' + (idx - nMain + 1);
   }
 
   function renderPregunta(item, idx, revision) {
     const q = item.ref;
     const card = document.createElement('div');
-    card.className = 'q-card';
+    card.className = 'q-card' + (item.reserva ? ' reserva' : '');
     card.id = `q-${idx}`;
+    card.dataset.idx = idx;
 
     const head = document.createElement('div');
     head.className = 'q-head';
-    head.innerHTML = `<span class="q-num">${idx + 1}</span>
-      <span class="q-tema-tag">${revision ? temaTitulo(q.tema) : 'Tema ' + q.tema}</span>`;
+    let headHtml = `<span class="q-num${item.reserva ? ' rsv' : ''}">${numeroVisible(idx)}</span>`;
+    if (item.reserva) headHtml += `<span class="rsv-tag">RESERVA</span>`;
+    if (revision && !respuestas[q.id]) headHtml += `<span class="blank-tag">SIN RESPONDER</span>`;
+    if (revision) {
+      const src = origenTag(q);
+      if (src) headHtml += `<span class="src-tag${/oficial/.test(src) ? ' oficial' : ''}">${src}</span>`;
+    }
+    headHtml += `<span class="q-tema-tag">${revision ? temaTitulo(q.tema) : 'Tema ' + q.tema}</span>`;
+    head.innerHTML = headHtml;
     card.appendChild(head);
 
     const texto = document.createElement('div');
@@ -276,7 +489,12 @@
         if (claveOrig === q.respuesta) opt.innerHTML += `<span class="mark">✓ correcta</span>`;
         else if (respuestas[q.id] === claveOrig) opt.innerHTML += `<span class="mark">✗ tu respuesta</span>`;
       } else {
+        opt.tabIndex = 0;
+        opt.setAttribute('role', 'button');
         opt.addEventListener('click', () => seleccionar(q.id, claveOrig, idx));
+        opt.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); seleccionar(q.id, claveOrig, idx); }
+        });
       }
       opts.appendChild(opt);
     });
@@ -301,8 +519,9 @@
     respuestas[qid] = clave;
     const card = $(`#q-${idx}`);
     $$('.option', card).forEach(o => o.classList.toggle('selected', o.dataset.clave === clave));
-    renderPalette();
+    actualizarPaletteEstado();
     actualizarProgreso();
+    guardarEnCurso();
   }
 
   function renderPalette() {
@@ -310,13 +529,65 @@
     pal.innerHTML = '';
     examen.forEach((item, i) => {
       const b = document.createElement('button');
-      b.textContent = i + 1;
+      b.textContent = numeroVisible(i);
+      b.dataset.idx = i;
+      if (item.reserva) b.classList.add('rsv');
       if (respuestas[item.ref.id]) b.classList.add('answered');
+      if (i === idxActual) b.classList.add('current');
       b.addEventListener('click', () => {
         $(`#q-${i}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
       });
       pal.appendChild(b);
     });
+  }
+
+  function actualizarPaletteEstado() {
+    $$('#palette button').forEach(b => {
+      const i = Number(b.dataset.idx);
+      b.classList.toggle('answered', !!respuestas[examen[i].ref.id]);
+      b.classList.toggle('current', i === idxActual);
+    });
+  }
+
+  // Seguimiento de la pregunta visible (para paleta y teclado)
+  function observarPreguntaActual() {
+    if (observer) observer.disconnect();
+    observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(e => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+      if (visible.length) {
+        idxActual = Number(visible[0].target.dataset.idx);
+        actualizarPaletteEstado();
+      }
+    }, { rootMargin: '-15% 0px -65% 0px', threshold: 0 });
+    $$('#questions-container .q-card').forEach(c => observer.observe(c));
+  }
+
+  // Teclado: 1-4 / a-d responden la pregunta visible; n/p navegan
+  function onKeydown(e) {
+    if ($('#view-exam').classList.contains('hidden')) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea') return;
+
+    const k = e.key.toLowerCase();
+    let pos = -1;
+    if (k >= '1' && k <= '4') pos = Number(k) - 1;
+    else if (['a', 'b', 'c', 'd'].includes(k)) pos = LETRAS.indexOf(k);
+
+    if (pos >= 0) {
+      const item = examen[idxActual];
+      if (item && item.orden[pos] != null) {
+        e.preventDefault();
+        seleccionar(item.ref.id, item.orden[pos], idxActual);
+      }
+      return;
+    }
+    if (k === 'n' || k === 'p') {
+      e.preventDefault();
+      const next = Math.min(Math.max(idxActual + (k === 'n' ? 1 : -1), 0), examen.length - 1);
+      $(`#q-${next}`).scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function actualizarProgreso() {
@@ -335,10 +606,11 @@
     timerId = setInterval(() => {
       segundosRestantes--;
       pintarTimer();
+      if (segundosRestantes % 15 === 0) guardarEnCurso();
       if (segundosRestantes <= 0) {
         stopTimer();
         alert('Se acabó el tiempo. Se corregirá el examen.');
-        corregirExamen();
+        corregirExamen(true);
       }
     }, 1000);
   }
@@ -353,41 +625,98 @@
   // =======================================================================
   // CORRECCIÓN / RESULTADOS
   // =======================================================================
-  function corregirExamen() {
+  function corregirExamen(tiempoAgotado) {
     const sinResponder = examen.length - examen.filter(it => respuestas[it.ref.id]).length;
-    if (sinResponder > 0 && segundosRestantes > 0) {
+    if (sinResponder > 0 && !tiempoAgotado) {
       if (!confirm(`Tienes ${sinResponder} preguntas sin responder. ¿Corregir de todas formas?`)) return;
     }
     stopTimer();
+    limpiarEnCurso();
 
     let ok = 0, bad = 0, blank = 0;
+    let rOk = 0, rTotal = 0;
     const porTema = {};
+    const falladasExamen = [];
+    const acertadasExamen = [];
+
     examen.forEach(it => {
       const q = it.ref;
       const r = respuestas[q.id];
+      if (it.reserva) {
+        rTotal++;
+        if (r === q.respuesta) rOk++;
+        else if (r) falladasExamen.push(q.id);
+        return; // la reserva no puntúa ni computa por tema
+      }
       porTema[q.tema] = porTema[q.tema] || { ok: 0, total: 0 };
       porTema[q.tema].total++;
       if (!r) blank++;
-      else if (r === q.respuesta) { ok++; porTema[q.tema].ok++; }
-      else bad++;
+      else if (r === q.respuesta) { ok++; porTema[q.tema].ok++; acertadasExamen.push(q.id); }
+      else { bad++; falladasExamen.push(q.id); }
     });
 
+    const nPrincipales = examen.filter(it => !it.reserva).length;
+    const notaMax = nPrincipales * EX.aciertoSuma;
     const nota = Math.max(0, ok * EX.aciertoSuma - bad * EX.falloResta);
-    const pct = Math.round(ok / examen.length * 100);
+    const nota10 = notaMax > 0 ? nota / notaMax * 10 : 0;
+    const pct = Math.round(ok / nPrincipales * 100);
 
     $('#r-ok').textContent = ok;
     $('#r-bad').textContent = bad;
     $('#r-blank').textContent = blank;
-    $('#r-nota').textContent = nota.toFixed(2) + ' / ' + (examen.length * EX.aciertoSuma);
+    $('#r-nota').textContent = `${nota.toFixed(2)} / ${notaMax} (equivale a ${nota10.toFixed(2)}/10)`;
+
+    const liReserva = $('#r-reserva-li');
+    if (rTotal > 0) {
+      liReserva.classList.remove('hidden');
+      $('#r-reserva').textContent = `${rOk}/${rTotal}`;
+    } else {
+      liReserva.classList.add('hidden');
+    }
 
     const circle = $('#score-circle');
-    $('#score-pct').textContent = pct + '%';
-    circle.className = 'score-circle ' + (pct >= 70 ? 'good' : pct >= 50 ? 'mid' : 'bad');
-    $('#score-grade').textContent = pct >= 70 ? 'Aprobado' : pct >= 50 ? 'Casi' : 'A repasar';
+    $('#score-pct').textContent = nota10.toFixed(1);
+    $('#score-sub').textContent = 'nota /10';
+    circle.className = 'score-circle ' + (nota10 >= 5 ? 'good' : nota10 >= 4 ? 'mid' : 'bad');
+    $('#score-grade').textContent = nota10 >= 5 ? 'Aprobado' : nota10 >= 4 ? 'Casi' : 'A repasar';
+
+    // Botón de repetir falladas de este examen
+    $('#retry-failed-btn').classList.toggle('hidden', falladasExamen.length === 0);
+    $('#retry-failed-btn').dataset.ids = JSON.stringify(falladasExamen);
+
+    // Actualizar banco de falladas persistente: se añaden las falladas,
+    // se retiran las que esta vez se han acertado.
+    const set = falladasSet();
+    falladasExamen.forEach(id => set.add(id));
+    acertadasExamen.forEach(id => set.delete(id));
+    LS.set('opos.falladas', Array.from(set).slice(-800));
+
+    // Guardar en historial
+    const hist = LS.get('opos.historial', []);
+    hist.unshift({ f: Date.now(), modo, n: nPrincipales, ok, bad, blank, nota, notaMax, nota10, porTema });
+    LS.set('opos.historial', hist.slice(0, 50));
 
     renderTemaStats(porTema);
     $('#review-container').innerHTML = '';
     cambiarVista('results');
+    window.scrollTo(0, 0);
+  }
+
+  function repetirFalladasExamen() {
+    let ids = [];
+    try { ids = JSON.parse($('#retry-failed-btn').dataset.ids || '[]'); } catch { }
+    const pool = ids.map(id => POR_ID.get(id)).filter(Boolean);
+    if (!pool.length) return;
+    modo = 'falladas';
+    examen = shuffle(pool).map(q => ({ ref: q, orden: shuffle(Object.keys(q.opciones)), reserva: false }));
+    respuestas = {};
+    idxActual = 0;
+    renderExamen();
+    cambiarVista('exam');
+    stopTimer();
+    segundosRestantes = 0;
+    $('#timer').classList.add('hidden');
+    guardarEnCurso();
     window.scrollTo(0, 0);
   }
 
@@ -427,8 +756,11 @@
 
   function volverInicio() {
     stopTimer();
-    examen = []; respuestas = {};
+    if (observer) { observer.disconnect(); observer = null; }
+    examen = []; respuestas = {}; segundosRestantes = 0; idxActual = 0;
+    $('#review-container').innerHTML = '';
     cerrarConfig();
+    refrescarHome();
     cambiarVista('home');
     window.scrollTo(0, 0);
   }

@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Generador de Exámenes · Operador de Informática UVa</title>
   <meta name="description" content="Generador de exámenes de prueba para la oposición de Operador de Informática de la Universidad de Valladolid. Temario 2026 (30 temas)." />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📝</text></svg>" />
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -24,16 +25,25 @@
   <main id="app" class="container">
     <!-- ============================ INICIO ============================ -->
     <section id="view-home" class="view">
+      <!-- Examen a medio hacer (persistido en este navegador) -->
+      <div id="resume-bar" class="card resume-bar hidden">
+        <span id="resume-text"></span>
+        <div class="resume-actions">
+          <button class="btn primary" id="resume-yes">Continuar examen</button>
+          <button class="btn ghost" id="resume-no">Descartar</button>
+        </div>
+      </div>
+
       <div class="card hero">
         <h2>Configura tu examen de prueba</h2>
-        <p class="muted">Las preguntas se eligen al azar de un banco amplio para que no se repitan. Al corregir verás la respuesta correcta, su explicación y el tema al que pertenece.</p>
+        <p class="muted">Las preguntas se eligen al azar priorizando las que aún no has visto. Al corregir verás la respuesta correcta, su explicación y el tema al que pertenece. Tu progreso se guarda solo en este navegador.</p>
       </div>
 
       <div class="modes">
         <button class="mode-card" data-modo="real">
           <span class="mode-icon">📝</span>
           <span class="mode-title">Examen real</span>
-          <span class="mode-desc">80 preguntas con la distribución por temas de convocatorias anteriores y tiempo limitado.</span>
+          <span class="mode-desc">80 preguntas con la distribución por temas de convocatorias anteriores, tiempo limitado y reserva opcional.</span>
         </button>
         <button class="mode-card" data-modo="rapido">
           <span class="mode-icon">⚡</span>
@@ -44,6 +54,11 @@
           <span class="mode-icon">🎯</span>
           <span class="mode-title">Por temas</span>
           <span class="mode-desc">Elige los temas concretos que quieres repasar y cuántas preguntas.</span>
+        </button>
+        <button class="mode-card hidden" data-modo="falladas">
+          <span class="mode-icon">🔁</span>
+          <span class="mode-title">Repaso de falladas</span>
+          <span class="mode-desc">Tienes <strong id="falladas-count">0</strong> preguntas falladas pendientes de dominar. Cuando las aciertes, saldrán de la lista.</span>
         </button>
       </div>
 
@@ -85,10 +100,25 @@
           <label class="check"><input type="checkbox" id="cfg-timer" /> Cronómetro</label>
         </div>
 
+        <div class="config-row inline hidden" id="row-reserva">
+          <label class="check"><input type="checkbox" id="cfg-reserva" checked /> Añadir las 8 preguntas de reserva (no puntúan, como en la convocatoria)</label>
+        </div>
+
         <div class="config-actions">
           <span id="config-summary" class="muted"></span>
           <button class="btn primary" id="start-exam">Comenzar examen →</button>
         </div>
+      </div>
+
+      <!-- Historial de resultados (localStorage) -->
+      <div id="history-card" class="card hidden">
+        <div class="config-head">
+          <h3>Tu progreso</h3>
+          <button class="link-btn" id="clear-history">🗑 borrar progreso</button>
+        </div>
+        <div id="history-list" class="history-list"></div>
+        <div id="worst-temas" class="worst-temas"></div>
+        <p class="muted small-note">Guardado únicamente en este navegador. Atajos durante el examen: teclas 1-4 o A-D responden la pregunta visible; N/P para avanzar o retroceder.</p>
       </div>
     </section>
 
@@ -117,7 +147,8 @@
     <section id="view-results" class="view hidden">
       <div class="card results-summary">
         <div class="score-circle" id="score-circle">
-          <span id="score-pct">0%</span>
+          <span id="score-pct">0</span>
+          <small id="score-sub">nota /10</small>
           <small id="score-grade"></small>
         </div>
         <div class="score-detail">
@@ -126,10 +157,12 @@
             <li><span class="dot ok"></span> Aciertos: <strong id="r-ok">0</strong></li>
             <li><span class="dot bad"></span> Fallos: <strong id="r-bad">0</strong></li>
             <li><span class="dot blank"></span> En blanco: <strong id="r-blank">0</strong></li>
-            <li>Nota (corrige el error): <strong id="r-nota">0</strong></li>
+            <li id="r-reserva-li" class="hidden">Reserva (no puntúa): <strong id="r-reserva">0</strong></li>
+            <li>Nota (acierto +1, fallo −0,33): <strong id="r-nota">0</strong></li>
           </ul>
           <div class="results-actions">
             <button class="btn primary" id="review-btn">Ver corrección detallada</button>
+            <button class="btn ghost hidden" id="retry-failed-btn">🔁 Repetir las falladas</button>
             <button class="btn ghost" id="new-exam-btn">Nuevo examen</button>
           </div>
         </div>
@@ -145,7 +178,7 @@
   </main>
 
   <footer class="footer">
-    <p>Material de estudio · Operador de Informática · Universidad de Valladolid. Banco de preguntas a partir de exámenes oficiales y contenido de estudio. Uso educativo.</p>
+    <p>Material de estudio · Operador de Informática · Universidad de Valladolid. Banco de preguntas a partir de exámenes oficiales y contenido de estudio. Uso educativo. El progreso se guarda solo en tu navegador (localStorage).</p>
   </footer>
 
   <!-- Datos (cargables offline, sin servidor) -->
